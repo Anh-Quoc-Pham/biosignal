@@ -1,0 +1,13 @@
+numpy
+pandas
+scipy
+matplotlib
+seaborn
+scikit-learn
+mne          # Thư viện chuyên xử lý EEG
+torch        # Pytorch (để train model)
+torchvision
+torchaudio
+jupyter      # Để chạy notebook
+notebook
+tqdm         # Thanh hiển thị tiến độ (progress bar)

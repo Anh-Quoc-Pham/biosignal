@@ -25,7 +25,6 @@ IMU_ROLES = {
 print("PROJECT_ROOT  :", PROJECT_ROOT)
 print("STRUCTURED_ROOT:", STRUCTURED_ROOT)
 print("\nDevice roles:")
-
 for d, name in DEVICE_ROLES.items():
     print(f"  Device {d} → {name}")
 for d, name in IMU_ROLES.items():
@@ -40,9 +39,6 @@ def list_subjects(data_root: str):
         if d.startswith("S") and os.path.isdir(os.path.join(data_root, d))
     ]
     return sorted(subjects)
-
-subjects = list_subjects(DATA_ROOT)
-print("Detected subjects:", subjects)
 
 def get_subject_paths(subject_id: str):
     """Return subject root, raw folder, and trigger folder."""
@@ -96,7 +92,9 @@ def load_mindrove_csv_simple(path: str) -> pd.DataFrame:
         start += 1
 
     if start >= len(lines):
-        raise ValueError(f"No header line found in file: {path}")
+        print(f"No header line found in file: {path}")
+        return None
+        
 
     # Replace header line with our clean header
     lines[start] = "\t".join(HEADER_SIMPLE)
@@ -117,8 +115,16 @@ def load_mindrove_csv_simple(path: str) -> pd.DataFrame:
 
     # Drop fully empty rows
     df = df.dropna(how="all")
+    if "Device number" not in df.columns:
+        print(f"⚠ Missing required column 'Device number' in file: {path}")
+        return None
+
+    if df.empty:
+        print(f"⚠ File has header but no data: {path}")
+        return None
 
     return df
+
 
 EXG_COLS = [f"Channel{i}" for i in range(1, 9)]
 IMU_COLS = ["GyroX", "GyroY", "GyroZ", "AccX", "AccY", "AccZ"]
@@ -195,38 +201,46 @@ def extract_clean_trial_id(filename: str) -> str:
         # Fallback: use the whole base name if unexpected format
         clean = base
     return clean
-for subject_id in subjects:
-    print("\n============================")
-    print(f"Processing subject: {subject_id}")
-    print("============================")
+def process_all_subjects(subjects):
+    skipped_files = []
 
-    raw_files, trig_files = list_trials_for_subject(subject_id)
-    print(f"  Raw trials:     {len(raw_files)}")
-    print(f"  Trigger trials: {len(trig_files)}")
+    for subject_id in subjects:
+        print("\n============================")
+        print(f"Processing subject: {subject_id}")
+        print("============================")
 
-    out_dir = get_structured_device_dir(subject_id)
+        raw_files, trig_files = list_trials_for_subject(subject_id)
+        print(f"  Raw trials:     {len(raw_files)}")
+        print(f"  Trigger trials: {len(trig_files)}")
 
-    for raw_path in raw_files:
-        # Original filename, e.g. 'S04_T01_29_11_25_19_27_24.csv'
-        filename = os.path.basename(raw_path)
+        out_dir = get_structured_device_dir(subject_id)
 
-        # Clean trial ID, e.g. 'S04_T01'
-        clean_trial = extract_clean_trial_id(filename)
+        for raw_path in raw_files:
+            filename = os.path.basename(raw_path)
+            clean_trial = extract_clean_trial_id(filename)
 
-        print(f"  → Splitting {clean_trial} (from {filename})")
+            print(f"  → Splitting {clean_trial} (from {filename})")
 
-        # Load raw MindRove CSV with our custom loader
-        df_raw = load_mindrove_csv_simple(raw_path)
+            df_raw = load_mindrove_csv_simple(raw_path)
 
-        # Split into 6 streams: EEG_1, EMG_2, EMG_3, IMU_1, IMU_2, IMU_3
-        streams = split_devices(df_raw)
+            # Kiểm tra df_raw trước khi split
+            if df_raw is None or df_raw.empty or "Device number" not in df_raw.columns:
+                print(f" ⚠ Skipping file: {filename}")
+                skipped_files.append(filename)
+                continue
 
-        # Save each stream as a clean CSV
-        for stream_name, df_stream in streams.items():
-            # Example: S04_T01_EEG_1_raw.csv
-            out_name = f"{clean_trial}_{stream_name}_raw.csv"
-            out_path = os.path.join(out_dir, out_name)
-            df_stream.to_csv(out_path, index=False)
+            streams = split_devices(df_raw)
 
-    print(f"✓ Finished subject {subject_id}")
+            for stream_name, df_stream in streams.items():
+                out_name = f"{clean_trial}_{stream_name}_raw.csv"
+                out_path = os.path.join(out_dir, out_name)
+                df_stream.to_csv(out_path, index=False)
+
+        print(f"✓ Finished subject {subject_id}")
+
+    if skipped_files:
+        print(f"\n⚠ {len(skipped_files)} file(s) were skipped:")
+        for f in skipped_files:
+            print(f"  - {f}")
+
 
